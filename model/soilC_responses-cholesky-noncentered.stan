@@ -1,4 +1,4 @@
-/* Following combination of Stan manual p 147-148
+/* Following combination of Stan manual (v2.14.0) p 147-148
 * and the Stan users group thread
 * "Dealing with divergent transitions in example model: From Wishart to LKJ priors for correlation."
 * 
@@ -31,7 +31,14 @@ transformed parameters {
 model {    to_vector(z) ~ normal(0, 1);
     L_Omega ~ lkj_corr_cholesky(2);    to_vector(gamma) ~ normal(0, 5);// Likelihood    
       y ~ normal(rows_dot_product(x, beta[site]), sigma);}
-
+generated quantities {
+    vector[N] log_lik;
+    vector[K] betasite;
+    for (n in 1:N) {
+        betasite =  to_vector(beta[site[n]]); // vectorize for the lpdf to work
+	log_lik[n] = normal_lpdf(y[n] | (x[n] * betasite), sigma); // likelihood of plot observation under model
+    }
+}
 
 
 
