@@ -6,5 +6,7 @@ This repository is or collaborative updating of the stan model, and processing/v
 
 ## Who to contact
 Project lead: Charlotte Riggs charlotte.riggs@gmail.com
+
 Stan model, code and GitHub access: Eric Lind elind@umn.edu
+
 Manuscript lead: Tom Crowther thomas.crowther11@gmail.com
