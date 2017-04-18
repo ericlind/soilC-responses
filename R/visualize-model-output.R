@@ -24,10 +24,6 @@ post5 <- extract(m5c2)
 names(post5)
 lapply(post5, dim) # rows = # MCMC samples
 
-# prediction grid without plot-level covar
-soilC_pred <- unique(datmod[, .(site_id, nit_z2, nit, pho_z2, pho, np_z2, np, site_code, map_z2, MAP, map_var_z2, MAP_VAR, mat_z2, MAT, temp_var_z2, TEMP_VAR, texture_z2, texture)])
-soilC_pred
-
 # site-level effects
 betadat <- melt(data.table(as.data.frame(m5c2, pars = c('beta'))))
 site_lut <- unique(datmod[, .(site_code, site_id)])
@@ -135,11 +131,17 @@ dev.off()
 system('open figures/overall-site-predictors.pdf')
 
 # effects of climate & texture on treatment effects
+# prediction grid with plot-level covar set to site means
+soilC_pred <- unique(datmod[, .(site_id, site_intercept = 1, nit_z2, nit, pho_z2, pho, np_z2, np, above_mass_z2 = site_above_mass_z2, below_mass_z2 = site_below_mass_z2, pH_z2 = site_pH_z2, site_code, map_z2, MAP, map_var_z2, MAP_VAR, mat_z2, MAT, temp_var_z2, TEMP_VAR, texture_z2, texture)])
 
-int <- betadat[predictor == 'site_intercept', 
-                   .(soil_gCm2 = mean(value), 
-                     ymin = PI(value)[1],
-                     ymax = PI(value)[2]), site_id]
+betas <- data.table(as.data.frame(m5c2, pars = c('beta')))
+dim(betas)
+sitevarz <- soilC_pred[, xnames, with = F]
+predmat <- betas * unlist(sitevarz)
+predmat
+
+soilC_pred
+
 
 
 
