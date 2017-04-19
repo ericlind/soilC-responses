@@ -130,22 +130,8 @@ p + theme_bw() +
 dev.off()  
 system('open figures/overall-site-predictors.pdf')
 
-# effects of climate & texture on treatment effects
-# prediction grid with plot-level covar set to site means
-soilC_pred <- unique(datmod[, .(site_id, site_intercept = 1, nit_z2, nit, pho_z2, pho, np_z2, np, above_mass_z2 = site_above_mass_z2, below_mass_z2 = site_below_mass_z2, pH_z2 = site_pH_z2, site_code, map_z2, MAP, map_var_z2, MAP_VAR, mat_z2, MAT, temp_var_z2, TEMP_VAR, texture_z2, texture)])
 
-betas <- data.table(as.data.frame(m5c2, pars = c('beta')))
-dim(betas)
-sitevarz <- soilC_pred[, xnames, with = F]
-predmat <- betas * unlist(sitevarz)
-predmat
-
-soilC_pred
-
-
-
-
-# partial pooling N effects
+# partial pooling N effects: coefficients
 alphas <- paste0('beta[',1:J,',1]')
 plot(m5c2, pars = alphas)
 print(m5c2, pars = 'gamma')
@@ -165,3 +151,64 @@ muPs <- paste0('gamma[', 1:L, ', 3]')
 plot(m5c2, pars = muPs)
 muNPs <- paste0('gamma[', 1:L, ', 4]')
 plot(m5c2, pars = muNPs)
+
+# prediction grid with plot-level covar set to site means
+soilC_pred <- unique(datmod[, .(site_id, site_intercept = 1, nit_z2, nit, pho_z2, pho, np_z2, np, above_mass_z2 = site_above_mass_z2, below_mass_z2 = site_below_mass_z2, pH_z2 = site_pH_z2, site_code, map_z2, MAP, map_var_z2, MAP_VAR, mat_z2, MAT, temp_var_z2, TEMP_VAR, texture_z2, texture)])
+setkey(soilC_pred, site_id, nit, pho, np)
+soilC_pred
+
+## prediction on original scale - influence of treatment on soil C ####
+# first, create muhat = beta[site] * xbar (x4000)
+# then draw from muhat with error sigma
+betas <- extract(m5c2, pars = c('beta'))$beta
+dim(betas)
+head(betas[, 1, ]) # 4000 reps for site 1
+xbar <- soilC_pred[site_id == 1, xnames, with = F]
+colSums(t(xbar) * betas[1, 1, ])
+
+sigmas <- extract(m5c2, pars = c('sigma'))$sigma
+
+predict_soilC <- function(i = site_id){
+  xbar <- soilC_pred[site_id == i, xnames, with = F]
+  muhat <- t(sapply(1:nrow(betas[, i, ]), 
+                    function(x) colSums(t(xbar) * betas[x, i, ])))
+  out <-  t(sapply(1:nrow(muhat), 
+                   function(x) rnorm(n = ncol(muhat), 
+                                     mean = muhat[x, ], 
+                                     sd = sigmas[x])))
+  return(out)
+}
+
+predlist <- lapply(1:J, predict_soilC)
+predlist <- lapply(predlist, as.data.table)
+predDT <- rbindlist(predlist, idcol = 'site_id')
+setnames(predDT, c('site_id', 'Ctl', 'P', 'N', 'NP'))
+predDT
+predmelt <- melt(predDT, id.vars = 'site_id',
+                variable.name = 'trt', 
+                value.name = 'log_soilC_gm2')
+predmelt <- site_lut[predmelt]
+pdf('figures/trt-posterior-prob-soilC-by-site.pdf', width = 12, 
+    height = 8)
+p <- ggplot(predmelt, aes(x = factor(trt),
+                        y = log_soilC_gm2))
+p + geom_violin() + facet_wrap(~ site_code) +
+  ylab(expression(paste('posterior prob distribution of soil C', m^-2)))
+dev.off()
+system('open figures/trt-posterior-prob-soilC-by-site.pdf')
+
+
+betas <- data.table(as.data.frame(m5c2, pars = c('beta')))
+dim(betas)
+sitevarz <- soilC_pred[, xnames, with = F]
+predmat <- betas * unlist(sitevarz)
+predmns <- apply(predmat, 2, mean)
+predlo <- apply(predmat, 2, function(x) quantile(x, 0.03))
+predhi <- apply(predmat, 2, function(x) quantile(x, 0.97))
+preddat <- data.table(matrix(c(predmns, predlo, predhi), ncol = K*3))
+setnames(preddat, c(xnames, paste0(xnames, '_lo')))
+soilC_pred
+
+
+
+
