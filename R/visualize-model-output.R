@@ -19,12 +19,34 @@ m5c2_shiny <- launch_shinystan(m5c2)
 # summary table by parameter
 print(m5c2, pars = 'gamma')
 
-## extract MCMC samples
+## extract MCMC samples ####
 post5 <- extract(m5c2)
 names(post5)
 lapply(post5, dim) # rows = # MCMC samples
 
-# site-level effects
+## quick-look parameter estimates ####
+# partial pooling N effects: coefficients
+alphas <- paste0('beta[',1:J,',1]')
+plot(m5c2, pars = alphas)
+print(m5c2, pars = 'gamma')
+betaNs <- paste0('beta[',1:J,',2]')
+plot(m5c2, pars = betaNs)
+betaPs <- paste0('beta[',1:J,',3]')
+plot(m5c2, pars = betaPs)
+betaNPs <- paste0('beta[',1:J,',4]')
+plot(m5c2, pars = betaNPs)
+
+# overall N, P, NP
+mains <- paste0('gamma[', 2:L, ', 1]')
+plot(m5c2, pars = mains)
+muNs <- paste0('gamma[', 1:L, ', 2]')
+plot(m5c2, pars = muNs)
+muPs <- paste0('gamma[', 1:L, ', 3]')
+plot(m5c2, pars = muPs)
+muNPs <- paste0('gamma[', 1:L, ', 4]')
+plot(m5c2, pars = muNPs)
+
+## site-level effects ####
 betadat <- melt(data.table(as.data.frame(m5c2, pars = c('beta'))))
 site_lut <- unique(datmod[, .(site_code, site_id)])
 setkey(site_lut, site_id)
@@ -44,7 +66,7 @@ siteint <- betadat[predictor == 'site_intercept',
                      ymin = PI(value)[1],
                      ymax = PI(value)[2]), site_id]
 
-# site intercept plot
+# site intercept
 pdf('figures/site-intercepts.pdf', width = 10, height = 8)
 p <- ggplot(datmod, aes(x=reorder(site_id, log(soil_gCm2)), y=log(soil_gCm2)))
 p + geom_boxplot() +
@@ -55,7 +77,7 @@ p + geom_boxplot() +
 dev.off()
 system('open figures/site-intercepts.pdf')
 
-# vars
+# effects of treatment
 pdf('figures/site-N-effect.pdf', width = 10, height = 6)
 p <- ggplot(betadat[predictor == 'nit_z2'], aes(x = reorder(site_code, value), y = value))
 p + theme_bw(base_size = 15) + 
@@ -92,7 +114,7 @@ p + theme_bw(base_size = 15) +
 dev.off()
 system('open figures/site-NP-effect.pdf')
 
-# global effects
+## global effects ####
 gammadat <- melt(data.table(as.data.frame(m5c2, pars = c('gamma'))))
 gammadat
 gammadat[, c("u_id", "x_id") := tstrsplit(variable, ",")]
@@ -109,7 +131,7 @@ setkey(x_lut, x_id)
 setkey(gammadat, x_id)
 gammadat <- x_lut[gammadat]
 gammadat
-
+unames
 # global variables plot
 # intercept
 pdf('figures/grand-mean-soilC-m2.pdf')
@@ -130,27 +152,119 @@ p + theme_bw() +
 dev.off()  
 system('open figures/overall-site-predictors.pdf')
 
+## "interactions" or influence of global predictors on plot predictors
+# 1. plot distribution of N effect per site (y) versus MAP on real scale (x)
+siteclim <- unique(datmod[, .(site_id, MAP, map_z2, MAP_VAR, map_var_z2)])
+setkey(siteclim, site_id)
+betaclim <- siteclim[betadat, on = 'site_id']
 
-# partial pooling N effects: coefficients
-alphas <- paste0('beta[',1:J,',1]')
-plot(m5c2, pars = alphas)
-print(m5c2, pars = 'gamma')
-betaNs <- paste0('beta[',1:J,',2]')
-plot(m5c2, pars = betaNs)
-betaPs <- paste0('beta[',1:J,',3]')
-plot(m5c2, pars = betaPs)
-betaNPs <- paste0('beta[',1:J,',4]')
-plot(m5c2, pars = betaNPs)
+p <- ggplot(betaclim[predictor == 'nit_z2'], aes(x = MAP, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_violin(fill = 'lightgray', aes(group = site_code))
 
-# overall N, P, NP
-mains <- paste0('gamma[', 2:L, ', 1]')
-plot(m5c2, pars = mains)
-muNs <- paste0('gamma[', 1:L, ', 2]')
-plot(m5c2, pars = muNs)
-muPs <- paste0('gamma[', 1:L, ', 3]')
-plot(m5c2, pars = muPs)
-muNPs <- paste0('gamma[', 1:L, ', 4]')
-plot(m5c2, pars = muNPs)
+#2. summarize (mean, hi, lo) relationship between climate and effect
+plot_interact <- function(betavar, gammavar, rep = 1000){
+  predseq <- seq(from = min(siteclim[, gammavar, with = F]),
+               to = max(siteclim[, gammavar, with = F]),
+               length.out = rep)
+  fx <- gammadat[plot_predictor == betavar & site_predictor == gammavar, value]
+  mn <- sapply(1:rep, function(x) mean(predseq[x] * fx))
+  hi <- sapply(1:rep, function(x) quantile(predseq[x] * fx, 0.97))
+  lo <- sapply(1:rep, function(x) quantile(predseq[x] * fx, 0.03))
+  return(data.table(interaction = paste0(betavar, '_x_', gammavar),
+                    predseq = predseq, mn = mn, hi = hi, lo = lo))
+}
+
+map_n <- plot_interact(betavar = 'nit_z2', gammavar = 'map_z2')
+# add raw scale predictor
+map_n[, MAP := (predseq*(2*sd(siteclim$MAP)) + mean(siteclim$MAP))]
+
+pdf('figures/MAP_N-effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'nit_z2'], aes(x = MAP, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = map_n, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = map_n, aes(x = MAP, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('std effect of adding N')
+dev.off()
+system('open figures/MAP_N-effect.pdf')
+
+
+map_p <- plot_interact(betavar = 'pho_z2', gammavar = 'map_z2')
+# add raw scale predictor
+map_p[, MAP := (predseq*(2*sd(siteclim$MAP)) + mean(siteclim$MAP))]
+
+pdf('figures/MAP_P-effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'pho_z2'], aes(x = MAP, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = map_p, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = map_p, aes(x = MAP, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('std effect of adding P')
+dev.off()
+system('open figures/MAP_P-effect.pdf')
+
+
+map_np <- plot_interact(betavar = 'np_z2', gammavar = 'map_z2')
+# add raw scale predictor
+map_np[, MAP := (predseq*(2*sd(siteclim$MAP)) + mean(siteclim$MAP))]
+
+pdf('figures/MAP_NP-effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'np_z2'], aes(x = MAP, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = map_np, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = map_np, aes(x = MAP, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('std effect of adding N & P')
+dev.off()
+system('open figures/MAP_NP-effect.pdf')
+
+mapvar_n <- plot_interact(betavar = 'nit_z2', gammavar = 'map_var_z2')
+# add raw scale predictor
+mapvar_n[, MAP_VAR := (predseq*(2*sd(siteclim$MAP_VAR)) + mean(siteclim$MAP_VAR))]
+
+pdf('figures/MAP_VAR_N-effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'nit_z2'], aes(x = MAP_VAR, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = mapvar_n, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = mapvar_n, aes(x = MAP_VAR, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('std effect of adding N') + 
+  xlab('precipitation seasonality (MAP variance)')
+dev.off()
+system('open figures/MAP_VAR_N-effect.pdf')
+
+
+mapvar_p <- plot_interact(betavar = 'pho_z2', gammavar = 'map_var_z2')
+# add raw scale predictor
+mapvar_p[, MAP_VAR := (predseq*(2*sd(siteclim$MAP_VAR)) + mean(siteclim$MAP_VAR))]
+
+pdf('figures/MAP_VAR_P-effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'pho_z2'], aes(x = MAP_VAR, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = mapvar_p, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = mapvar_p, aes(x = MAP_VAR, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('std effect of adding P') + 
+  xlab('precipitation seasonality (MAP variance)')
+dev.off()
+system('open figures/MAP_VAR_P-effect.pdf')
+
+mapvar_np <- plot_interact(betavar = 'np_z2', gammavar = 'map_var_z2')
+# add raw scale predictor
+mapvar_np[, MAP_VAR := (predseq*(2*sd(siteclim$MAP_VAR)) + mean(siteclim$MAP_VAR))]
+
+pdf('figures/MAP_VAR_NP-effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'np_z2'], aes(x = MAP_VAR, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = mapvar_np, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = mapvar_np, aes(x = MAP_VAR, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('std effect of adding N & P') + 
+  xlab('precipitation seasonality (MAP variance)')
+dev.off()
+system('open figures/MAP_VAR_NP-effect.pdf')
+
 
 # prediction grid with plot-level covar set to site means
 soilC_pred <- unique(datmod[, .(site_id, site_intercept = 1, nit_z2, nit, pho_z2, pho, np_z2, np, above_mass_z2 = site_above_mass_z2, below_mass_z2 = site_below_mass_z2, pH_z2 = site_pH_z2, site_code, map_z2, MAP, map_var_z2, MAP_VAR, mat_z2, MAT, temp_var_z2, TEMP_VAR, texture_z2, texture)])
@@ -196,19 +310,5 @@ p + geom_violin() + facet_wrap(~ site_code) +
   ylab(expression(paste('posterior prob distribution of soil C', m^-2)))
 dev.off()
 system('open figures/trt-posterior-prob-soilC-by-site.pdf')
-
-
-betas <- data.table(as.data.frame(m5c2, pars = c('beta')))
-dim(betas)
-sitevarz <- soilC_pred[, xnames, with = F]
-predmat <- betas * unlist(sitevarz)
-predmns <- apply(predmat, 2, mean)
-predlo <- apply(predmat, 2, function(x) quantile(x, 0.03))
-predhi <- apply(predmat, 2, function(x) quantile(x, 0.97))
-preddat <- data.table(matrix(c(predmns, predlo, predhi), ncol = K*3))
-setnames(preddat, c(xnames, paste0(xnames, '_lo')))
-soilC_pred
-
-
 
 
