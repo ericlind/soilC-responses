@@ -311,4 +311,16 @@ p + geom_violin() + facet_wrap(~ site_code) +
 dev.off()
 system('open figures/trt-posterior-prob-soilC-by-site.pdf')
 
-
+## reformulate as single plot with %C by site, col = trt
+pdf('figures/plot-trt-estimates-by-site.pdf', width = 12, height = 9)
+p <- ggplot(predmelt, aes(x = reorder(site_code, log_soilC_gm2),
+                          y = log_soilC_gm2,
+                          fill = factor(trt)))
+p + theme_bw(base_size = 12) + 
+  geom_violin() + 
+  geom_vline(xintercept = c(1:26 + 0.5), col = 'darkgray') + 
+  ylab(expression(paste('posterior prob distribution of soil C', m^-2))) + 
+  xlab('site_code') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+dev.off()
+system('open figures/plot-trt-estimates-by-site.pdf')
