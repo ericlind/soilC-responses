@@ -154,7 +154,9 @@ system('open figures/overall-site-predictors.pdf')
 
 ## "interactions" or influence of global predictors on plot predictors
 # 1. plot distribution of N effect per site (y) versus MAP on real scale (x)
-siteclim <- unique(datmod[, .(site_id, MAP, map_z2, MAP_VAR, map_var_z2)])
+siteclim <- unique(datmod[, .(site_id, MAP, map_z2, MAP_VAR, map_var_z2, 
+                              MAT, mat_z2, TEMP_VAR, temp_var_z2, 
+                              texture, texture_z2)])
 setkey(siteclim, site_id)
 betaclim <- siteclim[betadat, on = 'site_id']
 
@@ -324,3 +326,90 @@ p + theme_bw(base_size = 12) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 dev.off()
 system('open figures/plot-trt-estimates-by-site.pdf')
+
+## prediction on original scale - influence of climate/soil on soil C ####
+# need prediction matrix, set all other values to mean (0 in scaled space)
+
+site_predict <- function(gammavar, rep = 1000){
+  predseq <- seq(from = min(siteclim[, gammavar, with = F]),
+                 to = max(siteclim[, gammavar, with = F]),
+                 length.out = rep)
+  fx <- gammadat[plot_predictor == 'site_intercept' & site_predictor == gammavar, value]
+  A <- gammadat[variable == 'gamma[1,1]', value]
+  mn <- sapply(1:rep, function(x) mean((A + predseq[x] * fx)))
+  hi <- sapply(1:rep, function(x) quantile((A + predseq[x] * fx), 0.97))
+  lo <- sapply(1:rep, function(x) quantile((A + predseq[x] * fx), 0.03))
+  return(data.table(site_predictor = gammavar,
+                    predseq = predseq, mn = mn, hi = hi, lo = lo))
+}
+site_predict(gammavar = 'map_z2')
+clims <- unique(gammadat$site_predictor)[2:6]
+clim_list <- lapply(clims, function(x) site_predict(gammavar = x))
+climfx <- rbindlist(clim_list)
+climfx
+
+# add raw scale predictor
+map_fx <- climfx[site_predictor == 'map_z2', MAP := (predseq*(2*sd(siteclim$MAP)) + mean(siteclim$MAP))]
+
+pdf('figures/MAP_effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'site_intercept'], aes(x = MAP, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = map_fx, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = map_fx, aes(x = MAP, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('posterior probability of log soil C')
+dev.off()
+system('open figures/MAP_effect.pdf')
+
+mapvar_fx <- climfx[site_predictor == 'map_var_z2', MAP_VAR := (predseq*(2*sd(siteclim$MAP_VAR)) + mean(siteclim$MAP_VAR))]
+
+pdf('figures/MAP_VAR_effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'site_intercept'], aes(x = MAP_VAR, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = mapvar_fx, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = mapvar_fx, aes(x = MAP_VAR, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('posterior probability of log soil C') + 
+  xlab('Seasonality of Precip (MAP_Var)')
+dev.off()
+system('open figures/MAP_VAR_effect.pdf')
+
+temp_var_fx <- climfx[site_predictor == 'temp_var_z2',] TEMP_VAR := (predseq*(2*sd(siteclim$TEMP_VAR)) + mean(siteclim$TEMP_VAR))
+
+pdf('figures/TEMP_VAR_effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'site_intercept'], aes(x = TEMP_VAR, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = temp_var_fx, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = temp_var_fx, aes(x = TEMP_VAR, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('posterior probability of log soil C') + 
+  xlab('SD of Annual Temperature (TEMP_Var)')
+dev.off()
+system('open figures/TEMP_VAR_effect.pdf')
+
+temp_fx <- climfx[site_predictor == 'mat_z2', MAT := (predseq*(2*sd(siteclim$MAT)) + mean(siteclim$MAT))]
+
+pdf('figures/MAT_effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'site_intercept'], aes(x = MAT, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = temp_fx, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = temp_fx, aes(x = MAT, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('posterior probability of log soil C') + 
+  xlab('MAT (C)')
+dev.off()
+system('open figures/MAT_effect.pdf')
+
+texture_fx <- climfx[site_predictor == 'texture_z2', texture := (predseq*(2*sd(siteclim$texture)) + mean(siteclim$texture))]
+
+pdf('figures/texture_effect.pdf', width = 8, height = 6)
+p <- ggplot(betaclim[predictor == 'site_intercept'], aes(x = texture, y = value))
+p + theme_bw(base_size = 15) + 
+  geom_ribbon(data = texture_fx, aes(y = mn, ymax = hi, ymin = lo), fill = 'lightgray') +
+  geom_line(data = texture_fx, aes(x = texture, y = mn)) +
+  geom_violin(fill = 'lightgray', aes(group = site_code)) + 
+  ylab('posterior probability of log soil C') + 
+  xlab('soil texture (% silt + % clay)')
+dev.off()
+system('open figures/texture_effect.pdf')
+
